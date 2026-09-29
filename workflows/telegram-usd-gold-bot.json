@@ -1,0 +1,196 @@
+{
+  "name": "Telegram USD & Gold Price Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "daily-schedule",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        224,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message.text }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "/price"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-price-command",
+      "name": "Is Price Command",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://api.navasan.tech/latest/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "options": {}
+      },
+      "id": "get-prices",
+      "name": "Get Prices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        96
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "name": "Navasan API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst usdItem = data.usd_sell ?? data.usd;\nconst goldItem = data['18ayar'];\n\nconst usd = Number(usdItem?.value);\nconst gold = Number(goldItem?.value);\nconst fmt = (n) => Number.isFinite(n) ? n.toLocaleString('fa-IR') : 'نامشخص';\n\n// Convert Latin digits to Persian digits\nconst fa = (s) => String(s).replace(/\\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);\n\n// Last-change timestamp reported by the API, e.g. \"1405-07-05 21:01:55\" (Jalali)\nconst stamp = (d) => {\n  if (!d) return 'نامشخص';\n  const [dt, tm] = String(d).split(' ');\n  return fa(dt.replace(/-/g, '/')) + ' - ' + fa((tm || '').slice(0, 5));\n};\n\n// Jalali date and time of the fetch, Tehran timezone\nconst now = new Date();\nconst date = now.toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' });\nconst time = now.toLocaleTimeString('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hour12: false });\n\nlet chatId;\ntry {\n  // Triggered by the /price command: reply to the chat that sent it\n  chatId = $('Telegram Trigger').first().json.message.chat.id;\n} catch (e) {\n  // Scheduled daily run: replace with your own Telegram chat ID\n  chatId = 'YOUR_TELEGRAM_CHAT_ID';\n}\n\nconst text =\n  `💵 دلار: ${fmt(usd)} تومان\\n` +\n  `🕐 آخرین تغییر: ${stamp(usdItem?.date)}\\n\\n` +\n  `🥇 طلای ۱۸ عیار: ${fmt(gold)} تومان\\n` +\n  `🕐 آخرین تغییر: ${stamp(goldItem?.date)}\\n\\n` +\n  `📅 تاریخ دریافت: ${date}\\n` +\n  `⏰ ساعت دریافت: ${time}`;\n\nreturn [{ json: { chat_id: chatId, text } }];"
+      },
+      "id": "parse-prices",
+      "name": "Parse Prices",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-telegram-message",
+      "name": "Send Telegram Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        96
+      ],
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Get Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Price Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Price Command": {
+      "main": [
+        [
+          {
+            "node": "Get Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Prices": {
+      "main": [
+        [
+          {
+            "node": "Parse Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Prices": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
